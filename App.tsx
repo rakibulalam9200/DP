@@ -1,131 +1,116 @@
-/**
- * Sample React Native App
- * https://github.com/facebook/react-native
- *
- * @format
- */
-
-import React from 'react';
-import type {PropsWithChildren} from 'react';
+import React, {useEffect, useState} from 'react';
 import {
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  useColorScheme,
   View,
+  Button,
+  Text,
+  ScrollView,
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
-
 import {
-  Colors,
-  DebugInstructions,
-  Header,
-  LearnMoreLinks,
-  ReloadInstructions,
-} from 'react-native/Libraries/NewAppScreen';
+  LoginManager,
+  AccessToken,
+  GraphRequest,
+  GraphRequestManager,
+} from 'react-native-fbsdk-next';
 
-type SectionProps = PropsWithChildren<{
-  title: string;
-}>;
+const App = () => {
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
 
-function Section({children, title}: SectionProps): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
-  return (
-    <View style={styles.sectionContainer}>
-      <Text
-        style={[
-          styles.sectionTitle,
-          {
-            color: isDarkMode ? Colors.white : Colors.black,
-          },
-        ]}>
-        {title}
-      </Text>
-      <Text
-        style={[
-          styles.sectionDescription,
-          {
-            color: isDarkMode ? Colors.light : Colors.dark,
-          },
-        ]}>
-        {children}
-      </Text>
-    </View>
-  );
-}
+  const handleFacebookLogin = async () => {
+    try {
+      const result = await LoginManager.logInWithPermissions([
+        'public_profile',
+        'email',
+        'user_posts',
+      ]);
 
-function App(): React.JSX.Element {
-  const isDarkMode = useColorScheme() === 'dark';
+      if (result.isCancelled) {
+        Alert.alert('Login cancelled');
+        return;
+      }
 
-  const backgroundStyle = {
-    backgroundColor: isDarkMode ? Colors.darker : Colors.lighter,
+      const data = await AccessToken.getCurrentAccessToken();
+      if (!data) {
+        Alert.alert('Something went wrong getting access token');
+        return;
+      }
+
+      console.log('Access Token:', data.accessToken);
+
+      setAccessToken(data.accessToken.toString());
+      fetchUserPosts(data.accessToken.toString());
+    } catch (error) {
+      console.error('FB Login Error:', error);
+    }
   };
 
-  /*
-   * To keep the template simple and small we're adding padding to prevent view
-   * from rendering under the System UI.
-   * For bigger apps the reccomendation is to use `react-native-safe-area-context`:
-   * https://github.com/AppAndFlow/react-native-safe-area-context
-   *
-   * You can read more about it here:
-   * https://github.com/react-native-community/discussions-and-proposals/discussions/827
-   */
-  const safePadding = '5%';
-
+ // Fetch posts using Graph API
+ const fetchUserPosts = (token) => {
+  const request = new GraphRequest(
+    '/me/posts?fields=message,created_time,full_picture,permalink_url',
+    {
+      httpMethod: 'GET',
+      parameters: {
+        access_token: { string: token },
+        limit: { string: '10' }, // Get last 10 posts
+      },
+    },
+    (error, result) => {
+      if (error) {
+        console.log('Error fetching data: ', error);
+      } else {
+        setPosts(result.data);
+      }
+    }
+  );
+  new GraphRequestManager().addRequest(request).start();
+};
   return (
-    <View style={backgroundStyle}>
-      <StatusBar
-        barStyle={isDarkMode ? 'light-content' : 'dark-content'}
-        backgroundColor={backgroundStyle.backgroundColor}
-      />
-      <ScrollView
-        style={backgroundStyle}>
-        <View style={{paddingRight: safePadding}}>
-          <Header/>
-        </View>
-        <View
-          style={{
-            backgroundColor: isDarkMode ? Colors.black : Colors.white,
-            paddingHorizontal: safePadding,
-            paddingBottom: safePadding,
-          }}>
-          <Section title="Step One">
-            Edit <Text style={styles.highlight}>App.tsx</Text> to change this
-            screen and then come back to see your edits.
-          </Section>
-          <Section title="See Your Changes">
-            <ReloadInstructions />
-          </Section>
-          <Section title="Debug">
-            <DebugInstructions />
-          </Section>
-          <Section title="Learn More">
-            Read the docs to discover what to do next:
-          </Section>
-          <LearnMoreLinks />
-        </View>
+    <View style={styles.container}>
+      <Button title="Login with Facebook" onPress={handleFacebookLogin} />
+
+      {loading && <ActivityIndicator size="large" style={{marginTop: 20}} />}
+
+      <ScrollView style={{marginTop: 20}}>
+        {posts.map((post, index) => (
+          <View key={index} style={styles.post}>
+            <Text style={styles.message}>
+              {post.message ? post.message : '(No message)'}
+            </Text>
+            <Text style={styles.date}>
+              {new Date(post.created_time).toLocaleString()}
+            </Text>
+          </View>
+        ))}
       </ScrollView>
     </View>
   );
-}
-
-const styles = StyleSheet.create({
-  sectionContainer: {
-    marginTop: 32,
-    paddingHorizontal: 24,
-  },
-  sectionTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-  sectionDescription: {
-    marginTop: 8,
-    fontSize: 18,
-    fontWeight: '400',
-  },
-  highlight: {
-    fontWeight: '700',
-  },
-});
+};
 
 export default App;
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    marginTop: 60,
+  },
+  post: {
+    marginBottom: 20,
+    padding: 15,
+    backgroundColor: '#f1f1f1',
+    borderRadius: 8,
+  },
+  message: {
+    fontSize: 16,
+  },
+  date: {
+    fontSize: 12,
+    marginTop: 5,
+    color: '#666',
+  },
+});
