@@ -10,9 +10,12 @@ import {
   TextInput,
   TouchableOpacity,
   RefreshControl,
+  SafeAreaView,
+  StatusBar,
 } from 'react-native';
 import {LoginManager, AccessToken, Settings} from 'react-native-fbsdk-next';
 import Clipboard from '@react-native-clipboard/clipboard';
+import Icon from 'react-native-vector-icons/Ionicons';
 
 Settings.initializeSDK();
 
@@ -35,7 +38,19 @@ export default function App() {
   const fetchPostsWithComments = async (pageToken, pageId) => {
     try {
       const postsResponse = await fetch(
-        `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,created_time,full_picture,attachments,comments.limit(10){id,message,from,created_time,comments{id,message,from,created_time}}&access_token=${pageToken}`,
+        `https://graph.facebook.com/v19.0/${pageId}/posts?fields=id,message,created_time,full_picture,comments.limit(10){
+            id,
+            message,
+            from{name,id,picture},
+            created_time,
+            comments.limit(5){
+              id,
+              message,
+              from{name,id,picture},
+              created_time
+            }
+          }&access_token=${pageToken}
+        `,
       );
       const postsData = await postsResponse.json();
       return postsData.data || [];
@@ -54,6 +69,9 @@ export default function App() {
         'pages_read_engagement',
         'pages_manage_posts',
         'pages_manage_engagement',
+        'pages_read_user_content', // Add any other permissions you need
+        'pages_messaging',
+        'pages_manage_metadata',
       ]);
 
       if (result.isCancelled) throw new Error('Login cancelled');
@@ -64,7 +82,8 @@ export default function App() {
       );
       const pagesData = await pagesResponse.json();
 
-      if (!pagesData.data?.length) throw new Error('No pages found');
+      if (!pagesData?.data?.length) throw new Error('No pages found');
+      console.log(pagesData?.data, 'postdata');
 
       const firstPage = pagesData.data[2];
       const postsData = await fetchPostsWithComments(
@@ -187,82 +206,82 @@ export default function App() {
   };
 
   const renderComments = (comments, depth = 0) => {
-    return comments.map(comment => (
-      <View
-        key={comment.id}
-        style={[styles.commentCard, {marginLeft: depth * 20}]}>
-        <Image
-          source={{
-            uri: `https://graph.facebook.com/${comment.from.id}/picture`,
-          }}
-          style={styles.commentAvatar}
-        />
-        <View style={styles.commentContent}>
-          <Text style={styles.commentAuthor}>{comment.from.name}</Text>
-          <View
-            style={{
-              flex: 1,
-              justifyContent: 'space-between',
-              flexDirection: 'row',
-            }}>
-            <Text style={styles.commentText}>{comment.message}</Text>
-            <TouchableOpacity onPress={() => copyToClipboard(comment?.message)}>
-              <Text>Copy</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.commentTime}>
-            {new Date(comment.created_time).toLocaleTimeString()}
-          </Text>
+    console.log('Rendering comments:', comments);
+    return comments.map(comment => {
+      // Check if from data exists
+      const hasUserData = comment.from && comment.from.id && comment.from.name;
+      const userName = hasUserData ? comment.from.name : 'Facebook User';
+      const userId = hasUserData ? comment.from.id : null;
 
-          <TouchableOpacity
-            onPress={() =>
-              setActiveReply({
-                commentId: comment.id,
-                parentId: comment.id,
-              })
-            }>
-            <Text style={styles.replyTriggerText}>Reply</Text>
-          </TouchableOpacity>
-
-          {activeReply.parentId === comment.id && (
-            <View style={styles.replyContainer}>
-              <TextInput
-                style={styles.replyInput}
-                placeholder="Write a reply..."
-                value={replyText[comment.id] || ''}
-                onChangeText={text =>
-                  setReplyText(prev => ({...prev, [comment.id]: text}))
-                }
-                multiline
-              />
+      // Default avatar if user data is missing
+      const avatarUri = comment?.from?.picture?.data?.url;
+      return (
+        <View
+          key={comment.id}
+          style={[styles.commentCard, {marginLeft: depth * 20}]}>
+          <Image source={{uri: avatarUri}} style={styles.commentAvatar} />
+          <View style={styles.commentContent}>
+            <Text style={styles.commentAuthor}>{userName}</Text>
+            <View style={styles.commentMessageContainer}>
+              <Text style={styles.commentText}>{comment.message}</Text>
               <TouchableOpacity
-                style={styles.replyButton}
-                onPress={() => handleReply(comment.id)}
-                disabled={loadingReplies[comment.id]}>
-                {loadingReplies[comment.id] ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.replyButtonText}>Post Reply</Text>
-                )}
+                onPress={() => copyToClipboard(comment?.message)}>
+                <Icon name="copy" size={16} color="#000000" />
               </TouchableOpacity>
             </View>
-          )}
+            <Text style={styles.commentTime}>
+              {new Date(comment.created_time).toLocaleTimeString()}
+            </Text>
 
-          {comment.comments?.data?.length > 0 && (
-            <View style={styles.nestedComments}>
-              {renderComments(comment.comments.data, depth + 1)}
-            </View>
-          )}
+            <TouchableOpacity
+              onPress={() =>
+                setActiveReply({
+                  commentId: comment.id,
+                  parentId: comment.id,
+                })
+              }>
+              <Text style={styles.replyTriggerText}>Reply</Text>
+            </TouchableOpacity>
+
+            {activeReply.parentId === comment.id && (
+              <View style={styles.replyContainer}>
+                <TextInput
+                  style={styles.replyInput}
+                  placeholder="Write a reply..."
+                  value={replyText[comment.id] || ''}
+                  onChangeText={text =>
+                    setReplyText(prev => ({...prev, [comment.id]: text}))
+                  }
+                  multiline
+                />
+                <TouchableOpacity
+                  style={styles.replyButton}
+                  onPress={() => handleReply(comment.id)}
+                  disabled={loadingReplies[comment.id]}>
+                  {loadingReplies[comment.id] ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.replyButtonText}>Post Reply</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {comment.comments?.data?.length > 0 && (
+              <View style={styles.nestedComments}>
+                {renderComments(comment.comments.data, depth + 1)}
+              </View>
+            )}
+          </View>
         </View>
-      </View>
-    ));
+      );
+    });
   };
 
   const handleLogout = async () => {
     try {
       // Clear Facebook sessions
       await LoginManager.logOut();
-      await AccessToken.setCurrentAccessToken(null);
 
       // Reset all application states
       setPageInfo(null);
@@ -282,115 +301,125 @@ export default function App() {
   };
 
   return (
-    <ScrollView
-      contentContainerStyle={styles.container}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={async () => {
-            setRefreshing(true);
-            const newPosts = await fetchPostsWithComments(
-              pageInfo.access_token,
-              pageInfo.id,
-            );
-            setPosts(newPosts);
-            setRefreshing(false);
-          }}
-        />
-      }>
-      {pageInfo ? (
-        <>
-          <View style={styles.header}>
-            <Image source={{uri: pageInfo.picture}} style={styles.pageImage} />
-            <View>
-              <Text style={styles.pageName}>{pageInfo.name}</Text>
-              <TouchableOpacity onPress={handleLogout}>
-                <Text style={styles.logoutButton}>Logout</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          <View style={styles.newPostContainer}>
-            <TextInput
-              style={styles.postInput}
-              placeholder="Write a new post..."
-              value={newPostText}
-              onChangeText={setNewPostText}
-              multiline
-              numberOfLines={4}
-            />
-            <TouchableOpacity
-              style={styles.postButton}
-              onPress={handleNewPost}
-              disabled={posting}>
-              {posting ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.postButtonText}>Publish Post</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {posts.map(post => (
-            <View key={post.id} style={styles.postCard}>
-              {post.full_picture && (
-                <Image
-                  source={{uri: post.full_picture}}
-                  style={styles.postImage}
-                />
-              )}
-              <Text style={styles.postText}>{post.message}</Text>
-              <Text style={styles.postTime}>
-                {new Date(post.created_time).toLocaleString()}
-              </Text>
-
-              <View style={styles.commentSection}>
-                <Text style={styles.sectionTitle}>Comments</Text>
-
-                <View style={styles.commentsContainer}>
-                  {post.comments?.data?.length > 0 ? (
-                    renderComments(post.comments.data)
-                  ) : (
-                    <Text style={styles.noComments}>No comments yet</Text>
-                  )}
-                </View>
-
-                <View style={styles.newCommentContainer}>
-                  <TextInput
-                    style={styles.commentInput}
-                    placeholder="Write a comment..."
-                    value={newComment[post.id] || ''}
-                    onChangeText={text =>
-                      setNewComment(prev => ({...prev, [post.id]: text}))
-                    }
-                    multiline
-                  />
-                  <TouchableOpacity
-                    style={styles.commentButton}
-                    onPress={() => handleNewComment(post.id)}
-                    disabled={loadingComments[post.id]}>
-                    {loadingComments[post.id] ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Text style={styles.commentButtonText}>Post</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
+    <SafeAreaView style={{flex: 1}}>
+      <StatusBar
+        backgroundColor={'light'}
+        barStyle={'dark-content'}
+        translucent={false}
+      />
+      <ScrollView
+        contentContainerStyle={styles.container}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={async () => {
+              setRefreshing(true);
+              const newPosts = await fetchPostsWithComments(
+                pageInfo.access_token,
+                pageInfo.id,
+              );
+              setPosts(newPosts);
+              setRefreshing(false);
+            }}
+          />
+        }>
+        {pageInfo ? (
+          <>
+            <View style={styles.header}>
+              <Image
+                source={{uri: pageInfo.picture}}
+                style={styles.pageImage}
+              />
+              <View>
+                <Text style={styles.pageName}>{pageInfo.name}</Text>
+                <TouchableOpacity onPress={handleLogout}>
+                  <Text style={styles.logoutButton}>Logout</Text>
+                </TouchableOpacity>
               </View>
             </View>
-          ))}
-        </>
-      ) : (
-        <View style={styles.loginContainer}>
-          <Button
-            title="Connect Facebook Page"
-            onPress={handleFacebookLogin}
-            color="#1877f2"
-          />
-          {loading && <ActivityIndicator style={styles.loader} />}
-        </View>
-      )}
-    </ScrollView>
+
+            <View style={styles.newPostContainer}>
+              <TextInput
+                style={styles.postInput}
+                placeholder="Write a new post..."
+                value={newPostText}
+                onChangeText={setNewPostText}
+                multiline
+                numberOfLines={4}
+              />
+              <TouchableOpacity
+                style={styles.postButton}
+                onPress={handleNewPost}
+                disabled={posting}>
+                {posting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.postButtonText}>Publish Post</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {posts.map(post => (
+              <View key={post.id} style={styles.postCard}>
+                {post.full_picture && (
+                  <Image
+                    source={{uri: post.full_picture}}
+                    style={styles.postImage}
+                  />
+                )}
+                <Text style={styles.postText}>{post.message}</Text>
+                <Text style={styles.postTime}>
+                  {new Date(post.created_time).toLocaleString()}
+                </Text>
+
+                <View style={styles.commentSection}>
+                  <Text style={styles.sectionTitle}>Comments</Text>
+
+                  <View style={styles.commentsContainer}>
+                    {post.comments?.data?.length > 0 ? (
+                      renderComments(post.comments.data)
+                    ) : (
+                      <Text style={styles.noComments}>No comments yet</Text>
+                    )}
+                  </View>
+
+                  <View style={styles.newCommentContainer}>
+                    <TextInput
+                      style={styles.commentInput}
+                      placeholder="Write a comment..."
+                      value={newComment[post.id] || ''}
+                      onChangeText={text =>
+                        setNewComment(prev => ({...prev, [post.id]: text}))
+                      }
+                      multiline
+                    />
+                    <TouchableOpacity
+                      style={styles.commentButton}
+                      onPress={() => handleNewComment(post.id)}
+                      disabled={loadingComments[post.id]}>
+                      {loadingComments[post.id] ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.commentButtonText}>Post</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            ))}
+          </>
+        ) : (
+          <View style={styles.loginContainer}>
+            <Button
+              title="Connect Facebook Page"
+              onPress={handleFacebookLogin}
+              color="#1877f2"
+            />
+            {loading && <ActivityIndicator style={styles.loader} />}
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -398,7 +427,7 @@ const styles = StyleSheet.create({
   container: {
     padding: 15,
     backgroundColor: '#f0f2f5',
-    marginTop: 50,
+    paddingTop: 50,
   },
   header: {
     flexDirection: 'row',
@@ -452,6 +481,12 @@ const styles = StyleSheet.create({
   },
   commentsContainer: {
     marginBottom: 10,
+  },
+  commentMessageContainer: {
+    flex: 1,
+    justifyContent: 'space-between',
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   commentCard: {
     flexDirection: 'row',
